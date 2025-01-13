@@ -15,4 +15,4 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://yongxingloo.github.io/PolarGeosAIDocs/"
-Issues = "https://github.com/pypa/sampleproject/issues"
+Issues = "https://github.com/yongxingloo/PolarGeosAI/issues"
