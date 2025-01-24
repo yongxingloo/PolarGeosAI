@@ -49,6 +49,7 @@ def solar_azimuth_angle(lat, lon, datetime):
 
 
 def normalization_mean_std(images_dual_channel, target):
+
     # Create a mask to exclude zero values
     mask = images_dual_channel != 0
 
@@ -63,13 +64,12 @@ def normalization_mean_std(images_dual_channel, target):
         / mask.sum(axis=(0, 2, 3), keepdims=True)
     )
 
+
     # Compute mean and std for target normally (if it doesn't require masking)
     target_mean, target_std = target.mean(), target.std()
 
-    # Normalize images
+    
     images_dual_channel = (images_dual_channel - image_mean) / image_std
-
-    # Normalize target
     target = (target - target_mean) / target_std
 
     return images_dual_channel, target, image_mean, image_std, target_mean, target_std
@@ -192,32 +192,37 @@ time_transform = DateTimeCyclicEncoder()
 
 class MultiInputDataset(torch.utils.data.Dataset):
     def __init__(
-        self, images, saa, sza, targets=None, transform=None
+        self, images, numerical_input, transform=None
     ):
         self.images = images
-        self.saa = saa
-        self.sza = sza
-        self.targets = targets
+        self.numerical_input = numerical_input
         self.transform = transform
 
     def __len__(self):
         return len(self.images)
-
+    
     def __getitem__(self, idx):
+        # 1) Image
         image = torch.tensor(self.images[idx], dtype=torch.float32)
-
         if self.transform:
             image = self.transform(image)
 
-        numerical_input = torch.tensor(
-            [self.saa[idx], self.sza[idx]], dtype=torch.float32
+        # 2) Variables for sample "idx"
+        #    e.g. everything except the last column is input variables
+        variables = torch.tensor(
+            self.numerical_input[idx, :-1],  # or whatever columns are your features
+            dtype=torch.float32
         )
 
-        if self.targets is not None:
-            target = torch.tensor(self.targets[idx], dtype=torch.float32)
-            return image, numerical_input, target
-        else:
-            return image, numerical_input
+        # 3) Target for sample "idx"
+        #    e.g. the last column is your target
+        target = torch.tensor(
+            self.numerical_input[idx, -1],
+            dtype=torch.float32
+        )
+
+        return image, variables, target
+
 
 
 def visualize_kernels(layer_weights, layer_name):
@@ -294,7 +299,7 @@ def visualize_numerical_layers(layer_weights, layer_name):
     plt.show()
 
 
-def error_plot(best_val_outputs, best_val_labels, path_folder):
+def error_plot(best_val_outputs, best_val_labels, path_folder=None):
     error = best_val_outputs - best_val_labels
     x_error = np.arange(0, len(error))
 
@@ -312,14 +317,15 @@ def error_plot(best_val_outputs, best_val_labels, path_folder):
     plt.axhline(y=mean + std, color="g", linestyle="--", label="Mean Error + Std")
     plt.axhline(y=mean - std, color="g", linestyle="--", label="Mean Error - Std")
     plt.legend()
-    plt.savefig(os.path.join(path_folder, "error_plot.png"))
+    if path_folder:
+        plt.savefig(os.path.join(path_folder, "error_plot.png"))
 
     plt.figure()
     plt.plot(best_val_labels, best_val_outputs, "o")
     plt.gca().set_aspect("equal", adjustable="box")
     plt.xlabel("True Labels")
     plt.ylabel("Model Output")
-    plt.title("Model Output vs True Labels")
+    plt.title("Model Output vs True Labels in test dataset")
     plt.xticks(np.arange(0, 30, 5))
     plt.yticks(np.arange(0, 30, 5))
     plt.plot(
@@ -327,7 +333,8 @@ def error_plot(best_val_outputs, best_val_labels, path_folder):
         [min(best_val_labels), max(best_val_labels)],
         "r--",
     )  # y = x reference line
-    plt.savefig(os.path.join(path_folder, "scatter_plot.png"))
+    if path_folder:
+        plt.savefig(os.path.join(path_folder, "scatter_plot.png"))
     plt.show()
 
 
@@ -361,3 +368,45 @@ def plot_save_loss(
 def MSE(y_true, y_pred):
     print(np.mean((y_true - y_pred) ** 2), "= MSE after run")
     return np.mean((y_true - y_pred) ** 2)
+
+
+def normalize_data(images, numerical_data):
+    """
+    Normalize images and numerical data, excluding zero padding from mean and std calculations.
+    """
+    # Mask to identify valid (non-zero) pixels
+    valid_pixels = images != 0  # Boolean mask for non-zero values
+
+    # Calculate mean and std for valid pixels only
+    image_means = np.sum(images * valid_pixels, axis=(2, 3), keepdims=True) / np.maximum(
+        np.sum(valid_pixels, axis=(2, 3), keepdims=True), 1
+    )
+    image_variance = np.sum(
+        ((images - image_means) ** 2) * valid_pixels, axis=(2, 3), keepdims=True
+    ) / np.maximum(np.sum(valid_pixels, axis=(2, 3), keepdims=True), 1)
+    image_stds = np.sqrt(image_variance)
+
+    # Replace zero std with 1 to avoid division errors
+    image_stds[image_stds == 0] = 1
+
+    # Normalize images
+    normalized_images = (images - image_means) / image_stds
+
+    # Force the padded pixels back to 0
+    normalized_images[~valid_pixels] = 0
+
+    # Normalize numerical data as before
+    num_means = np.mean(numerical_data, axis=1, keepdims=True)
+    num_stds = np.std(numerical_data, axis=1, keepdims=True)
+
+    # Replace zero std in numerical data with 1
+    num_stds[num_stds == 0] = 1
+    normalized_numerical_data = (numerical_data - num_means) / num_stds
+
+    return normalized_images, normalized_numerical_data, image_means, image_stds, num_means, num_stds
+
+
+# Function to denormalize data
+def denormalize_data(normalized_data, means, stds):
+    return normalized_data * stds + means
+

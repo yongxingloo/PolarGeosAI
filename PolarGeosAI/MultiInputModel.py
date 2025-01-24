@@ -17,7 +17,7 @@ class MultiInputModel(nn.Module):
         activation_numerical,
         activation_final,
         stride,
-        dropout_rate=0.2,
+        dropout_rate,
     ):
         super(MultiInputModel, self).__init__()
         self.activation_cnn = activation_cnn
@@ -75,7 +75,7 @@ class MultiInputModel(nn.Module):
 
     def _get_flattened_size(self, height, width):
         # Simulate passing an input through the CNN to get the output size
-        x = torch.zeros(1, 2, height, width)
+        x = torch.zeros(1, self.convs[0].in_channels, height, width)
         for conv in self.convs:
             x = conv(x)
         flattened_size = x.view(1, -1).size(1)

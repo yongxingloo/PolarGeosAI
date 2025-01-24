@@ -62,6 +62,7 @@ def train_model(
     patience_epochs,
     patience_loss,
     path_folder,
+    
 ):
 
     logging.basicConfig(
